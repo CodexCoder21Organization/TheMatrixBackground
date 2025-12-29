@@ -77,9 +77,11 @@ try {
     await page.waitForSelector('canvas#ComposeTarget', { timeout: 30000 });
     console.log('Canvas found!');
 
-    // Wait a bit for the Matrix animation to start
-    console.log('Waiting for animation to initialize...');
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    // Wait for the Matrix animation to reach steady-state density
+    // The original GLMatrix starts with all strips in "erasing" mode with no visible glyphs
+    // It takes several seconds for strips to cycle and fill with characters
+    console.log('Waiting for animation to reach steady-state...');
+    await new Promise(resolve => setTimeout(resolve, 15000));
 
     // Take a screenshot
     const screenshot1Path = path.join(SCREENSHOT_DIR, 'matrix_frame1.png');
