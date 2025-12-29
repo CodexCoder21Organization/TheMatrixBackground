@@ -1,0 +1,13 @@
+{
+  "name": "matrix-puppeteer-test",
+  "version": "1.0.0",
+  "description": "Puppeteer test for Matrix Background",
+  "type": "module",
+  "scripts": {
+    "test": "node test.mjs"
+  },
+  "dependencies": {
+    "puppeteer": "^23.0.0",
+    "serve": "^14.2.0"
+  }
+}
