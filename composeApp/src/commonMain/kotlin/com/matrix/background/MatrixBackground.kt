@@ -6,16 +6,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.text.TextMeasurer
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.delay
+import org.jetbrains.compose.resources.ExperimentalResourceApi
+import org.jetbrains.compose.resources.imageResource
+import thematrixbackground.composeapp.generated.resources.Res
+import thematrixbackground.composeapp.generated.resources.matrix3
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -28,10 +27,13 @@ import kotlin.math.tan
  * Renders the Matrix digital rain effect using Compose Canvas.
  * This is a faithful port of glmatrix.c by Jamie Zawinski.
  *
+ * Uses the original matrix3.png texture atlas for pixel-perfect rendering.
+ *
  * The rendering uses the exact same projection math as the original OpenGL code:
  * - gluPerspective(80.0, 1/h, 1.0, 100)
  * - gluLookAt(0.0, 0.0, 25.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
  */
+@OptIn(ExperimentalResourceApi::class)
 @Composable
 fun MatrixBackground(
     modifier: Modifier = Modifier,
@@ -54,7 +56,8 @@ fun MatrixBackground(
         )
     }
 
-    val textMeasurer = rememberTextMeasurer()
+    // Load the original matrix3.png texture
+    val texture = imageResource(Res.drawable.matrix3)
 
     // Animation loop - update state every frame
     LaunchedEffect(Unit) {
@@ -80,7 +83,7 @@ fun MatrixBackground(
         @Suppress("UNUSED_EXPRESSION")
         frameCount
 
-        drawMatrix(matrixState, textMeasurer)
+        drawMatrix(matrixState, texture)
     }
 }
 
@@ -97,21 +100,16 @@ private val FOCAL_LENGTH = (1.0 / tan((FOV_DEGREES / 2) * PI / 180.0)).toFloat()
 // Helper function to convert degrees to radians (Kotlin multiplatform compatible)
 private fun toRadians(degrees: Double): Double = degrees * PI / 180.0
 
+// Texture dimensions from glmatrix.c
+// The original texture is 512x598, padded to 512x512 after spank_image()
+// Character grid is 16 columns x 13 rows (but reduced to 11 rows after spank_image)
+private const val TEXTURE_WIDTH = 512
+private const val TEXTURE_HEIGHT = 512  // After padding/spanking
+private const val ORIGINAL_HEIGHT = 598
+private const val REAL_CHAR_ROWS = 11  // After spank_image removes 2 rows
+
 /**
  * Project a 3D point to 2D screen coordinates using the same math as OpenGL.
- *
- * From glmatrix.c:
- *   gluPerspective(80.0, 1/h, 1.0, 100)
- *   gluLookAt(0.0, 0.0, 25.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
- *
- * @param worldX X position in world coordinates
- * @param worldY Y position in world coordinates
- * @param worldZ Z position in world coordinates
- * @param viewRotX View rotation around X axis (from auto_track)
- * @param viewRotY View rotation around Y axis (from auto_track)
- * @param screenWidth Width of the screen/canvas
- * @param screenHeight Height of the screen/canvas
- * @return Pair of (screenX, screenY) or null if behind camera
  */
 private fun project3Dto2D(
     worldX: Float,
@@ -123,7 +121,6 @@ private fun project3Dto2D(
     screenHeight: Float
 ): ProjectedPoint? {
     // Apply view rotation (from glRotatef in draw_matrix)
-    // Rotation is applied in the order: rotateX then rotateY
     val radX = toRadians(viewRotX.toDouble())
     val radY = toRadians(viewRotY.toDouble())
 
@@ -140,25 +137,21 @@ private fun project3Dto2D(
     val x2 = worldX * cosY + z1 * sinY
     val z2 = -worldX * sinY + z1 * cosY
 
-    // Transform to camera space (camera at z=25 looking at origin)
-    // In camera space, z increases away from camera
+    // Transform to camera space
     val cameraZ = CAMERA_Z.toFloat() - z2
 
-    // Don't render if behind camera or too close
     if (cameraZ <= NEAR_PLANE.toFloat()) return null
 
     // Perspective projection
-    // OpenGL perspective: x_clip = x * focal / z, y_clip = y * focal / z
     val aspect = screenWidth / screenHeight
     val projX = (x2 * FOCAL_LENGTH) / cameraZ
     val projY = (y1 * FOCAL_LENGTH) / cameraZ
 
-    // Convert from normalized device coordinates [-1, 1] to screen coordinates
-    // Account for aspect ratio
+    // Convert to screen coordinates
     val screenX = (projX / aspect + 1f) * screenWidth / 2f
-    val screenY = (1f - projY) * screenHeight / 2f  // Flip Y for screen coords
+    val screenY = (1f - projY) * screenHeight / 2f
 
-    // Calculate the projected size of a 1-unit quad at this depth
+    // Calculate the projected size of a 1-unit quad
     val projectedSize = (FOCAL_LENGTH / cameraZ) * minOf(screenWidth, screenHeight) / 2f
 
     return ProjectedPoint(screenX, screenY, projectedSize, cameraZ)
@@ -173,42 +166,34 @@ private data class ProjectedPoint(
 
 /**
  * Draw the entire matrix effect
- * Based on draw_matrix() from glmatrix.c
  */
 private fun DrawScope.drawMatrix(
     state: MatrixState,
-    textMeasurer: TextMeasurer
+    texture: ImageBitmap
 ) {
-    // Sort strips by z-depth (back to front) for proper alpha blending
-    // From draw_matrix(): "draw the ones farthest from the camera first"
+    // Sort strips by z-depth (back to front)
     val sortedStrips = state.strips.sortedBy { it.z }
 
     for (strip in sortedStrips) {
-        drawStrip(state, strip, textMeasurer)
+        drawStrip(state, strip, texture)
     }
 }
 
 /**
  * Draw all the visible glyphs in the strip.
- * Based on draw_strip() from glmatrix.c
  */
 private fun DrawScope.drawStrip(
     state: MatrixState,
     s: Strip,
-    textMeasurer: TextMeasurer
+    texture: ImageBitmap
 ) {
-    // From draw_strip() in glmatrix.c:
-    // for (i = 0; i < GRID_SIZE; i++)
     for (i in 0 until GRID_SIZE) {
         val g = s.glyphs[i]
         val belowP = s.spinnerY >= i
-
-        // if (s->erasing_p) below_p = !below_p;
         val shouldDraw = if (s.erasingP) !belowP else belowP
 
-        // if (g && below_p) - don't draw cells below the spinner
         if (g != 0 && shouldDraw) {
-            val brightness = calculateGlyphBrightness(state, s, i, g)
+            val brightness = calculateGlyphBrightness(state, s, i)
             drawGlyph(
                 state = state,
                 glyph = g,
@@ -217,14 +202,13 @@ private fun DrawScope.drawStrip(
                 y = s.y - i,
                 z = s.z,
                 brightness = brightness,
-                textMeasurer = textMeasurer
+                texture = texture
             )
         }
     }
 
-    // if (!s->erasing_p) draw_glyph(...spinner...)
+    // Draw the spinner
     if (!s.erasingP) {
-        val spinnerBrightness = calculateGlyphBrightness(state, s, s.spinnerY.toInt(), s.spinnerGlyph)
         drawGlyph(
             state = state,
             glyph = s.spinnerGlyph,
@@ -232,26 +216,20 @@ private fun DrawScope.drawStrip(
             x = s.x,
             y = s.y - s.spinnerY,
             z = s.z,
-            brightness = 1.0f,  // Spinner always at full brightness
-            textMeasurer = textMeasurer
+            brightness = 1.0f,
+            texture = texture
         )
     }
 }
 
 /**
  * Calculate brightness for a glyph position
- * Based on draw_strip() brightness calculation in glmatrix.c
  */
 private fun calculateGlyphBrightness(
     state: MatrixState,
     s: Strip,
-    glyphIndex: Int,
-    glyph: Int
+    glyphIndex: Int
 ): Float {
-    // From draw_strip():
-    // if (!do_waves) brightness = 1.0;
-    // else { int j = WAVE_SIZE - ((i + (GRID_SIZE - s->wave_position)) % WAVE_SIZE);
-    //        brightness = mp->brightness_ramp[j]; }
     return if (!state.doWaves) {
         1.0f
     } else {
@@ -263,8 +241,12 @@ private fun calculateGlyphBrightness(
 }
 
 /**
- * Draw a single character at the given position and brightness.
- * Based on draw_glyph() from glmatrix.c
+ * Draw a single glyph using texture coordinates from matrix3.png
+ *
+ * From glmatrix.c draw_glyph():
+ * - cx, cy are texture coordinates for the character
+ * - The quad is drawn from (x,y,z) to (x+S, y+S, z)
+ * - Color is modulated by brightness and alpha
  */
 private fun DrawScope.drawGlyph(
     state: MatrixState,
@@ -274,9 +256,8 @@ private fun DrawScope.drawGlyph(
     y: Float,
     z: Float,
     brightness: Float,
-    textMeasurer: TextMeasurer
+    texture: ImageBitmap
 ) {
-    // if (glyph == 0) abort(); - but we check before calling
     if (glyph == 0) return
 
     val spinnerP = glyph < 0
@@ -291,14 +272,12 @@ private fun DrawScope.drawGlyph(
         viewRotY = state.viewY,
         screenWidth = size.width,
         screenHeight = size.height
-    ) ?: return  // Behind camera
+    ) ?: return
 
-    // From draw_glyph():
-    // GLfloat S = 1;
-    // if (!do_texture) { S = 0.8; x += 0.1; y += 0.1; }
+    // From glmatrix.c: GLfloat S = 1;
     val S = 1.0f
 
-    // Calculate final brightness with all modifiers from draw_glyph()
+    // Calculate final brightness with all modifiers
     var finalBrightness = brightness
 
     // if (spinner_p) brightness *= 1.5;
@@ -311,25 +290,14 @@ private fun DrawScope.drawGlyph(
         finalBrightness *= 2f
     }
 
-    // Fog effect from draw_glyph():
-    // if (do_fog) {
-    //   GLfloat depth = (z / GRID_DEPTH) + 0.5;
-    //   depth = 0.2 + (depth * 0.8);
-    //   brightness *= depth;
-    // }
+    // Fog effect
     if (state.doFog) {
         var depth = (z / GRID_DEPTH) + 0.5f
         depth = 0.2f + (depth * 0.8f)
         finalBrightness *= depth
     }
 
-    // Fade out when close to screen from draw_glyph():
-    // if (z > GRID_DEPTH/2) {
-    //   GLfloat ratio = ((z - GRID_DEPTH/2) / ((GRID_DEPTH * SPLASH_RATIO) - GRID_DEPTH/2));
-    //   int i = ratio * WAVE_SIZE;
-    //   if (i < 0) i = 0; else if (i >= WAVE_SIZE) i = WAVE_SIZE-1;
-    //   a *= mp->brightness_ramp[i];
-    // }
+    // Fade out when close to screen
     if (z > GRID_DEPTH / 2f) {
         val ratio = ((z - GRID_DEPTH / 2f) / ((GRID_DEPTH * SPLASH_RATIO) - GRID_DEPTH / 2f))
         val i = (ratio * WAVE_SIZE).toInt().coerceIn(0, WAVE_SIZE - 1)
@@ -338,61 +306,53 @@ private fun DrawScope.drawGlyph(
 
     finalBrightness = finalBrightness.coerceIn(0f, 1f)
 
-    // Color calculation from draw_glyph():
-    // if (!do_texture && !spinner_p) r = b = 0, g = 1;
-    // else r = g = b = 1;
-    // a = brightness;
-    // glColor4f(r, g, b, a);
+    // Calculate texture coordinates
+    // From glmatrix.c:
+    // int ccx = ((glyph - 1) % CHAR_COLS);
+    // int ccy = ((glyph - 1) / CHAR_COLS);
+    // cx = ccx * w;
+    // cy = (mp->real_char_rows - ccy - 1) * h;
+    val glyphIndex = actualGlyph - 1
+    val charCol = glyphIndex % CHAR_COLS
+    val charRow = glyphIndex / CHAR_COLS
+
+    // Character dimensions in the texture
+    val charWidth = texture.width / CHAR_COLS
+    val charHeight = texture.height / REAL_CHAR_ROWS
+
+    // Texture coordinates (note: y is flipped in the original)
+    val srcX = charCol * charWidth
+    val srcY = (REAL_CHAR_ROWS - charRow - 1) * charHeight
+
+    // Screen size for this glyph
+    val screenSize = (projected.size * S).coerceIn(4f, 100f)
+
+    // Draw the texture region with color modulation
+    // The original uses GL_SRC_ALPHA, GL_ONE blending (additive)
+    // and sets glColor4f(r, g, b, a) where a = brightness
     //
-    // The original uses GL_SRC_ALPHA, GL_ONE blending which is additive
-    // For spinner: white (r=g=b=1), for regular: also white but will appear green due to texture
-    // Since we don't have the texture, we use green for regular glyphs
-    val color = if (spinnerP) {
-        // Spinner - bright white/green tinted
+    // In the original: if (!do_texture && !spinner_p) r=b=0, g=1; else r=g=b=1;
+    // Since we're using texture, r=g=b=1, and the texture provides the green color
+
+    val colorFilter = ColorFilter.tint(
         Color(
             red = finalBrightness,
             green = finalBrightness,
             blue = finalBrightness,
             alpha = finalBrightness
-        )
-    } else {
-        // Regular glyph - green (matching the Matrix aesthetic)
-        // The original texture has green characters, RGB gets multiplied by the texture
-        Color(
-            red = 0f,
-            green = finalBrightness,
-            blue = 0f,
-            alpha = finalBrightness
-        )
-    }
-
-    // Get the character to draw
-    val char = MatrixGlyphs.getChar(actualGlyph)
-
-    // Calculate font size based on projected size
-    // A 1-unit quad in the original becomes projected.size pixels
-    val fontSize = (projected.size * S * 0.8f).coerceIn(6f, 72f)
-
-    val style = TextStyle(
-        color = color,
-        fontSize = fontSize.sp,
-        fontFamily = FontFamily.Monospace,
-        fontWeight = if (spinnerP) FontWeight.Bold else FontWeight.Normal
+        ),
+        BlendMode.Modulate
     )
 
-    val textLayoutResult = textMeasurer.measure(
-        text = char.toString(),
-        style = style
-    )
-
-    // Draw centered at the projected position
-    // In the original, the quad goes from (x,y) to (x+S, y+S)
-    // We center the text on the projected point
-    drawText(
-        textLayoutResult = textLayoutResult,
-        topLeft = Offset(
-            x = projected.screenX - textLayoutResult.size.width / 2f,
-            y = projected.screenY - textLayoutResult.size.height / 2f
-        )
+    drawImage(
+        image = texture,
+        srcOffset = IntOffset(srcX.coerceIn(0, texture.width - charWidth), srcY.coerceIn(0, texture.height - charHeight)),
+        srcSize = IntSize(charWidth, charHeight),
+        dstOffset = IntOffset(
+            (projected.screenX - screenSize / 2).toInt(),
+            (projected.screenY - screenSize / 2).toInt()
+        ),
+        dstSize = IntSize(screenSize.toInt(), screenSize.toInt()),
+        colorFilter = colorFilter
     )
 }

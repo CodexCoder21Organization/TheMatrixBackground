@@ -17,3 +17,4 @@ puppeteer-test/screenshots/
 
 # Logs
 *.log
+.kotlin/
