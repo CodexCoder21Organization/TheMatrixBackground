@@ -1,0 +1,47 @@
+name: Gradle - Build and Test
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  merge_group:
+    branches: [ main, master ]
+
+jobs:
+  gradle-build:
+    name: Build Compose Multiplatform
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build Desktop JAR
+        run: ./gradlew :composeApp:desktopJar --no-daemon
+
+      - name: Build WebAssembly Distribution
+        run: ./gradlew :composeApp:wasmJsBrowserDistribution --no-daemon
+
+      - name: Verify build outputs exist
+        run: |
+          echo "Checking Desktop JAR..."
+          ls -la composeApp/build/libs/ || echo "No desktop libs found"
+          echo "Checking WasmJs distribution..."
+          ls -la composeApp/build/dist/wasmJs/productionExecutable/ || echo "No wasmJs dist found"
