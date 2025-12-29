@@ -21,6 +21,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.tan
 
+
 /**
  * Matrix Background Composable
  *
@@ -56,8 +57,14 @@ fun MatrixBackground(
         )
     }
 
-    // Load the original matrix3.png texture
-    val texture = imageResource(Res.drawable.matrix3)
+    // Load the original matrix3.png texture and process it
+    // exactly as glmatrix.c load_textures() does:
+    // - Green channel becomes alpha
+    // - Green is set to 0xFF
+    val rawTexture = imageResource(Res.drawable.matrix3)
+    val texture = remember(rawTexture) {
+        processMatrixTexture(rawTexture)
+    }
 
     // Animation loop - update state every frame
     LaunchedEffect(Unit) {
@@ -327,12 +334,16 @@ private fun DrawScope.drawGlyph(
     // Screen size for this glyph
     val screenSize = (projected.size * S).coerceIn(4f, 100f)
 
-    // Draw the texture region with color modulation
-    // The original uses GL_SRC_ALPHA, GL_ONE blending (additive)
-    // and sets glColor4f(r, g, b, a) where a = brightness
+    // Draw the texture region with additive blending
+    // From glmatrix.c: glBlendFunc(GL_SRC_ALPHA, GL_ONE)
+    // This means: result = src.alpha * src.color + dst.color
     //
-    // In the original: if (!do_texture && !spinner_p) r=b=0, g=1; else r=g=b=1;
-    // Since we're using texture, r=g=b=1, and the texture provides the green color
+    // The texture has been processed so that:
+    // - Green channel became alpha (black pixels are now transparent)
+    // - Green is set to 0xFF (full green intensity)
+    //
+    // glColor4f(r, g, b, a) where a = brightness modulates the texture
+    // In the original with texture: r=g=b=1, so we just modulate by brightness
 
     val colorFilter = ColorFilter.tint(
         Color(
@@ -353,6 +364,7 @@ private fun DrawScope.drawGlyph(
             (projected.screenY - screenSize / 2).toInt()
         ),
         dstSize = IntSize(screenSize.toInt(), screenSize.toInt()),
-        colorFilter = colorFilter
+        colorFilter = colorFilter,
+        blendMode = BlendMode.Plus  // Additive blending: GL_SRC_ALPHA, GL_ONE
     )
 }
