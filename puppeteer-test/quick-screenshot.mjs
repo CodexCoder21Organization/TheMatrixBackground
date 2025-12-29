@@ -23,8 +23,9 @@ try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1024, height: 768 });
 
-    console.log('Navigating to http://localhost:8080...');
-    await page.goto('http://localhost:8080', {
+    const port = process.argv[2] || '8080';
+    console.log(`Navigating to http://localhost:${port}...`);
+    await page.goto(`http://localhost:${port}`, {
         waitUntil: 'networkidle0',
         timeout: 60000
     });
