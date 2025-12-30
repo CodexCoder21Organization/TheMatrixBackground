@@ -13,8 +13,8 @@ import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.imageResource
-import thematrixbackground.composeapp.generated.resources.Res
-import thematrixbackground.composeapp.generated.resources.matrix3
+import com.matrix.composeapp.generated.resources.Res
+import com.matrix.composeapp.generated.resources.matrix3
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
