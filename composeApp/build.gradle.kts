@@ -6,7 +6,11 @@ plugins {
     kotlin("multiplatform")
     id("org.jetbrains.compose")
     id("org.jetbrains.kotlin.plugin.compose")
+    `maven-publish`
 }
+
+group = "com.matrix"
+version = "1.0.0"
 
 kotlin {
     jvm("desktop")
@@ -62,6 +66,24 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "TheMatrixBackground"
             packageVersion = "1.0.0"
+        }
+    }
+}
+
+publishing {
+    publications.withType<MavenPublication> {
+        val baseName = "matrix-3d-background"
+        artifactId = when (name) {
+            "kotlinMultiplatform" -> baseName
+            "desktop" -> "$baseName-desktop"
+            "wasmJs" -> "$baseName-wasm-js"
+            else -> "$baseName-$name"
+        }
+    }
+    repositories {
+        maven {
+            name = "kotlinDirectory"
+            url = uri("https://kotlin.directory")
         }
     }
 }
